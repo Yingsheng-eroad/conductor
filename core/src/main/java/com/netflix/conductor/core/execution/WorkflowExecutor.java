@@ -375,7 +375,7 @@ public class WorkflowExecutor {
         Workflow workflow = new Workflow();
         workflow.setWorkflowId(workflowId);
         workflow.setCorrelationId(correlationId);
-        workflow.setPriority(priority);
+        workflow.setPriority(priority == null ? 0 : priority);
         workflow.setWorkflowDefinition(workflowDefinition);
         workflow.setStatus(WorkflowStatus.RUNNING);
         workflow.setParentWorkflowId(parentWorkflowId);
@@ -1551,8 +1551,12 @@ public class WorkflowExecutor {
             if (task.getTaskId().equals(taskId)) {
                 rerunFromTask = task;
                 break;
-            } else {
-                // If not found look into sub workflows
+            }
+        }
+
+        // If not found look into sub workflows
+        if(rerunFromTask == null) {
+	        for (Task task : workflow.getTasks()) {
                 if (task.getTaskType().equalsIgnoreCase(SubWorkflow.NAME)) {
                     String subWorkflowId = task.getSubWorkflowId();
                     if (rerunWF(subWorkflowId, taskId, taskInput, null, null)) {
@@ -1688,6 +1692,7 @@ public class WorkflowExecutor {
                 subWorkflowTask.setStatus(IN_PROGRESS);
                 executionDAOFacade.updateTask(subWorkflowTask);
                 parentWorkflow.setStatus(WorkflowStatus.RUNNING);
+                parentWorkflow.setLastRetriedTime(System.currentTimeMillis());
                 executionDAOFacade.updateWorkflow(parentWorkflow);
                 return true;
             } else if (parentWorkflow.getStatus().equals(WorkflowStatus.RUNNING)) {
