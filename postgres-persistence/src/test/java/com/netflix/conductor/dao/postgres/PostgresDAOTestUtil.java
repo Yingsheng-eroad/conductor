@@ -46,12 +46,13 @@ public class PostgresDAOTestUtil {
         ds.setUser("postgres");
         ds.setPassword("postgres");
         this.initializationDataSource = ds;
-
+        createUser(ds, "conductor", "password");
         createDb(ds, dbName);
+        grant(ds, dbName, "conductor");
 
         testConfiguration.setProperty("jdbc.url", JDBC_URL_PREFIX + dbName);
-        testConfiguration.setProperty("jdbc.username", "postgres");
-        testConfiguration.setProperty("jdbc.password", "postgres");
+        testConfiguration.setProperty("jdbc.username", "conductor");
+        testConfiguration.setProperty("jdbc.password", "password");
 
         this.dataSource = getDataSource(testConfiguration);
     }
@@ -60,8 +61,8 @@ public class PostgresDAOTestUtil {
 
         HikariDataSource dataSource = new HikariDataSource();
         dataSource.setJdbcUrl(config.getProperty("jdbc.url", JDBC_URL_PREFIX + "conductor"));
-        dataSource.setUsername(config.getProperty("jdbc.username", "postgres"));
-        dataSource.setPassword(config.getProperty("jdbc.password", "postgres"));
+        dataSource.setUsername(config.getProperty("jdbc.username", "conductor"));
+        dataSource.setPassword(config.getProperty("jdbc.password", "password"));
         dataSource.setAutoCommit(false);
 
         // Prevent DB from getting exhausted during rapid testing
@@ -78,6 +79,9 @@ public class PostgresDAOTestUtil {
         flyway.setLocations(Paths.get("db","migration_postgres").toString());
         flyway.setDataSource(dataSource);
         flyway.setPlaceholderReplacement(false);
+        flyway.setBaselineOnMigrate(true);
+        flyway.setSchemas("conductor");
+        flyway.setTable("schema_version");
         flyway.migrate();
     }
 
@@ -105,6 +109,37 @@ public class PostgresDAOTestUtil {
 
         try (Connection connection = ds.getConnection()) {
             String stmt = String.format("%s DATABASE %s %s", prefix, suffix, dbName);
+            try (PreparedStatement ps = connection.prepareStatement(stmt)) {
+                ps.executeUpdate();
+            }
+        } catch (SQLException ex) {
+            logger.error(ex.getMessage(), ex);
+            throw new RuntimeException(ex);
+        }
+    }
+
+    private static void createUser(DataSource ds, String role, String password) {
+
+        try (Connection connection = ds.getConnection()) {
+            String stmt = String.format("DO $$\n" +
+                    "BEGIN\n" +
+                    "  CREATE ROLE %s WITH LOGIN PASSWORD '%s';\n" +
+                    "  EXCEPTION WHEN DUPLICATE_OBJECT THEN\n" +
+                    "  RAISE NOTICE 'not creating role %s -- it already exists';\n" +
+                    "END\n" +
+                    "$$;", role, password, role);
+            try (PreparedStatement ps = connection.prepareStatement(stmt)) {
+                ps.executeUpdate();
+            }
+        } catch (SQLException ex) {
+            logger.error(ex.getMessage(), ex);
+            throw new RuntimeException(ex);
+        }
+    }
+    private static void grant(DataSource ds, String dbName, String role) {
+
+        try (Connection connection = ds.getConnection()) {
+            String stmt = String.format("GRANT ALL ON DATABASE %s TO %s", dbName, role);
             try (PreparedStatement ps = connection.prepareStatement(stmt)) {
                 ps.executeUpdate();
             }
